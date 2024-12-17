@@ -4,3 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+opencv = { version="0.93.5", default-features = false, features = ["calib3d", "features2d", "rgb", "imgproc", "imgcodecs"] }
+tch = "0.18.1"
