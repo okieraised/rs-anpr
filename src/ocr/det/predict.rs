@@ -28,7 +28,7 @@ impl TextDetector {
         let model = Session::builder()?
             .with_log_id(3.to_string())?
             .with_optimization_level(GraphOptimizationLevel::Level3)?
-            .with_intra_threads(4)?
+            // .with_intra_threads(4)?
             .with_execution_providers([CUDAExecutionProvider::default().build()])?
             .commit_from_file(model_path)?;
 
