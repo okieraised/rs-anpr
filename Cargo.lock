@@ -1932,6 +1932,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ndarray",
+ "num_cpus",
  "opencv",
  "serde_json",
  "tract",

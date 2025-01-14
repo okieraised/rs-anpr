@@ -1,6 +1,6 @@
 use std::cmp::max;
 use anyhow::Error;
-use ndarray::{Array1, Array3};
+use ndarray::{Array1, Array3, Axis};
 use opencv::core::{copy_make_border, Mat, MatTraitConst, Scalar, Size, Vec3b, Vector, BORDER_CONSTANT};
 use opencv::imgcodecs::imwrite;
 use opencv::imgproc::{resize, threshold, INTER_LINEAR};
@@ -14,7 +14,7 @@ pub struct TextDetector {
     unclip_ratio: f32,
     preprocess: Preprocess,
     postprocess: Postprocess,
-    // model: RunnableModel<TypedFact, Box<dyn TypedOp>, Graph<TypedFact, Box<dyn TypedOp>>>
+    model: RunnableModel<TypedFact, Box<dyn TypedOp>, Graph<TypedFact, Box<dyn TypedOp>>>
 }
 
 
@@ -29,13 +29,9 @@ impl TextDetector {
 
         let model = tract_onnx::onnx()
             .model_for_path(model_path)?
-            .into_typed()?
-            .with_input_fact(0, f32::fact([1, 3, 224, 224]).into())?
+            //.with_input_fact(0, f32::fact([1, 3, 224, 224]).into())?
             .into_optimized()?
             .into_runnable()?;
-
-        println!("model: {:?}", model);
-
 
         Ok(TextDetector {
             model_path: model_path.to_string(),
@@ -43,7 +39,7 @@ impl TextDetector {
             unclip_ratio,
             preprocess,
             postprocess,
-            // model,
+            model,
         })
     }
 
@@ -52,9 +48,15 @@ impl TextDetector {
         let unclip_ratio= unclip_ratio.unwrap_or(self.unclip_ratio);
 
         let (resized, shape) = self.preprocess.resize(img, 960)?;
+        let tensors = self.preprocess.normalize(&resized, vec![0.485, 0.456, 0.406], vec![0.229, 0.224, 0.225], 1f32/255f32)?;
+        let tensor = self.preprocess.hwc_to_chw(tensors);
 
-
-        // let (preprocessed, shape) = self.
+        let i: Tensor = tensor.insert_axis(Axis(0)).into();
+        let i2 = i.to_owned().into();
+        println!("I {:?}", i);
+        let forward = self.model.run(tvec![i2])?;
+        // let results = forward[0].to_array_view::<f32>()?.view().t().into_owned();
+        // println!("{:?}", results);
 
         Ok(())
     }
@@ -70,8 +72,12 @@ mod tests {
     fn test_resize() {
         let im_bytes: &[u8] = include_bytes!("../../../test_data/car.jpg");
         let image = convert_image_to_mat(im_bytes).unwrap();
-        let detector = TextDetector::new("plate_det_infer.onnx", None, None).unwrap();
-        detector.preprocess.resize(&image, 960).unwrap();
+        let detector = TextDetector::new("model_static.onnx", None, None).unwrap();
+
+        for i in 0..10 {
+            detector.call(&image, None, None).unwrap();
+        }
+
     }
 
     #[test]
@@ -88,7 +94,7 @@ mod tests {
     fn test_hwc_to_chw() {
         let im_bytes: &[u8] = include_bytes!("../../../test_data/car.jpg");
         let image = convert_image_to_mat(im_bytes).unwrap();
-        let detector = TextDetector::new("plate_det_infer.onnx", None, None).unwrap();
+        let detector = TextDetector::new("model_static.onnx", None, None).unwrap();
 
         let (img, shape) = detector.preprocess.resize(&image, 960).unwrap();
         let tensors = detector.preprocess.normalize(&img, vec![0.485, 0.456, 0.406], vec![0.229, 0.224, 0.225], 1f32/255f32).unwrap();
