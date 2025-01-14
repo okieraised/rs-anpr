@@ -26,8 +26,11 @@ impl TextDetector {
         }
     }
 
-    pub fn call(&self, bbox_threshold: Option<f32>, unclip_ratio: Option<f32>) -> Result<(), Error> {
+    pub fn call(&self, img: &Mat, bbox_threshold: Option<f32>, unclip_ratio: Option<f32>) -> Result<(), Error> {
+        let bbox_threshold = bbox_threshold.unwrap_or(self.bbox_threshold);
+        let unclip_ratio= unclip_ratio.unwrap_or(self.unclip_ratio);
 
+        // let (preprocessed, shape) = self.
 
         Ok(())
     }
