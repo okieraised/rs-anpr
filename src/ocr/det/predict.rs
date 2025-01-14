@@ -4,9 +4,7 @@ use ndarray::{Array1, Array3};
 use opencv::core::{copy_make_border, Mat, MatTraitConst, Scalar, Size, Vec3b, Vector, BORDER_CONSTANT};
 use opencv::imgcodecs::imwrite;
 use opencv::imgproc::{resize, INTER_LINEAR};
-use ort::execution_providers::CUDAExecutionProvider;
-use ort::session::builder::GraphOptimizationLevel;
-use ort::session::Session;
+use tract_onnx::prelude::{tract_ndarray, Tensor};
 
 pub struct TextDetector {
     model_path: String,
@@ -17,26 +15,15 @@ pub struct TextDetector {
 
 impl TextDetector {
 
-    pub fn new(model_path: &str, bbox_threshold: Option<f32>, unclip_ratio: Option<f32>) -> Result<Self, Error> {
+    pub fn new(model_path: &str, bbox_threshold: Option<f32>, unclip_ratio: Option<f32>) -> Self {
         let bbox_threshold = bbox_threshold.unwrap_or(0.6);
         let unclip_ratio= unclip_ratio.unwrap_or(1.6);
 
-        ort::init()
-            .with_execution_providers([CUDAExecutionProvider::default().build()])
-            .commit()?;
-
-        let model = Session::builder()?
-            .with_log_id(3.to_string())?
-            .with_optimization_level(GraphOptimizationLevel::Level3)?
-            // .with_intra_threads(4)?
-            .with_execution_providers([CUDAExecutionProvider::default().build()])?
-            .commit_from_file(model_path)?;
-
-        Ok(TextDetector {
+        TextDetector {
             model_path: model_path.to_string(),
             bbox_threshold,
             unclip_ratio,
-        })
+        }
     }
 
     pub fn call(&self, bbox_threshold: Option<f32>, unclip_ratio: Option<f32>) -> Result<(), Error> {
@@ -81,37 +68,25 @@ impl TextDetector {
             BORDER_CONSTANT,
             Scalar::new(0.0, 0.0, 0.0, 0.0),
         )?;
-
         drop(resized_img);
 
         imwrite("./test.jpeg", &padded_img, &Vector::new())?;
 
         let shape = Array1::from(vec![src_h as f32, src_w as f32, ratio]);
-        println!("shape: {:?}", shape);
 
         Ok((padded_img, shape))
     }
 
     fn normalize(&self, img: &Mat, mean: Vec<f32>, std: Vec<f32>, scale: f32) -> Result<Array3<f32>, Error>{
-        // let mean = Array3::from_shape_vec((1, 1, 3), mean).unwrap();
-        // let std = Array3::from_shape_vec((1, 1, 3), std).unwrap();
-
-        println!("mean: {:?}", mean);
-        println!("std: {:?}", std);
-
-
         let src_h = img.rows();
-        println!("src_h: {:?}", src_h);
         let src_w = img.cols();
-        println!("src_w: {:?}", src_w);
-
         let mut tensors = Array3::<f32>::zeros((src_w as usize,src_h as usize, 3usize));
 
-        for i in 0..3 {
+        for c in 0..3 {
             for y in 0..src_w as usize {
                 for x in 0..src_h as usize {
-                    let pixel_value = img.at_2d::<Vec3b>(y as i32, x as i32).unwrap()[i];
-                    tensors[[y, x, i]] = (pixel_value as f32 * scale - mean[i]) / mean[i];
+                    let pixel_value = img.at_2d::<Vec3b>(y as i32, x as i32).unwrap()[c];
+                    tensors[[y, x, c]] = (pixel_value as f32 * scale - mean[c]) / std[c];
                 }
             }
         }
@@ -133,7 +108,7 @@ mod tests {
     fn test_resize() {
         let im_bytes: &[u8] = include_bytes!("../../../test_data/car.jpg");
         let image = convert_image_to_mat(im_bytes).unwrap();
-        let detector = TextDetector::new("", None, None).unwrap();
+        let detector = TextDetector::new("", None, None);
         detector.resize(&image, 960).unwrap();
     }
 
@@ -141,8 +116,23 @@ mod tests {
     fn test_normalize() {
         let im_bytes: &[u8] = include_bytes!("../../../test_data/car.jpg");
         let image = convert_image_to_mat(im_bytes).unwrap();
-        let detector = TextDetector::new("../../../weights/ppocrv4/ch_PP-OCRv4_det_infer.onnx", None, None).unwrap();
-        detector.normalize(&image, vec![0.485, 0.456, 0.406], vec![0.229, 0.224, 0.225], 1f32/255f32);
+        let detector = TextDetector::new("../../../weights/ppocrv4/plate_det_infer.onnx", None, None);
+
+        let (img, shape) = detector.resize(&image, 960).unwrap();
+        detector.normalize(&img, vec![0.485, 0.456, 0.406], vec![0.229, 0.224, 0.225], 1f32/255f32);
+    }
+
+    #[test]
+    fn test_hwc_to_chw() {
+        let im_bytes: &[u8] = include_bytes!("../../../test_data/car.jpg");
+        let image = convert_image_to_mat(im_bytes).unwrap();
+        let detector = TextDetector::new("../../../weights/ppocrv4/plate_det_infer.onnx", None, None);
+
+        let (img, shape) = detector.resize(&image, 960).unwrap();
+        let tensors = detector.normalize(&img, vec![0.485, 0.456, 0.406], vec![0.229, 0.224, 0.225], 1f32/255f32).unwrap();
+        let tensor = detector.hwc_to_chw(tensors);
+
+        println!("tensor: {:?}", tensor);
     }
 
 }
